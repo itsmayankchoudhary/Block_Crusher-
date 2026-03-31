@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Crusher - Brick Breaker Game</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎮</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-gamepad"></i> BLOCK CRUSHER</h1>
+            <p class="subtitle">Classic Brick Breaker - Break all bricks with your paddle!</p>
+        </header>
+
+        <div class="game-area">
+            <div class="stats-panel">
+                <div class="stat">
+                    <span class="stat-label"><i class="fas fa-star"></i> SCORE</span>
+                    <span id="score" class="stat-value">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label"><i class="fas fa-heart"></i> LIVES</span>
+                    <span id="lives" class="stat-value">3</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label"><i class="fas fa-layer-group"></i> LEVEL</span>
+                    <span id="level" class="stat-value">1</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label"><i class="fas fa-trophy"></i> HIGH SCORE</span>
+                    <span id="high-score" class="stat-value">0</span>
+                </div>
+            </div>
+
+            <canvas id="gameCanvas" width="800" height="500">
+                Your browser does not support the HTML5 Canvas element.
+            </canvas>
+
+            <div class="controls">
+                <div class="buttons">
+                    <button id="startBtn" class="btn btn-start">
+                        <i class="fas fa-play"></i> START GAME
+                    </button>
+                    <button id="pauseBtn" class="btn btn-pause">
+                        <i class="fas fa-pause"></i> PAUSE
+                    </button>
+                    <button id="restartBtn" class="btn btn-restart">
+                        <i class="fas fa-redo"></i> RESTART
+                    </button>
+                    <button id="soundBtn" class="btn btn-sound">
+                        <i class="fas fa-volume-up"></i> SOUND ON
+                    </button>
+                </div>
+
+                <div class="instructions">
+                    <h3><i class="fas fa-info-circle"></i> HOW TO PLAY</h3>
+                    <ul>
+                        <li><strong>LEFT / RIGHT ARROWS</strong> – Move paddle</li>
+                        <li><strong>SPACEBAR</strong> – Launch ball</li>
+                        <li><strong>MOUSE</strong> – Move paddle (click to launch)</li>
+                        <li><strong>P</strong> – Pause / Resume</li>
+                        <li>Break all bricks to win. Don't let the ball fall!</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built with <i class="fas fa-heart" style="color:#e74c3c;"></i> using HTML5 Canvas & Vanilla JavaScript</p>
+            <p class="copyright">© 2025 Block Crusher | Educational Project</p>
+        </footer>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
