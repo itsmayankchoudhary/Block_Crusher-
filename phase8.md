@@ -1,125 +1,323 @@
-# PHASE 8: Testing & Debugging
+# Phase 8: Rendering Engine
 
-## Objective
-Systematically validate the game’s correctness, performance, and robustness. Identify and fix bugs, edge cases, and performance issues.
+## STEP 8: Drawing Hundreds of Sprites Efficiently
 
-## 1. Test Categories
+### 1. Goal
+* Replace the single‑triangle renderer with a **batch renderer** that can draw hundreds of sprites in one OpenGL call.
+* Add **texture support** – load PNG images and map them onto quads.
+* Implement a **camera system** that converts world coordinates to screen coordinates.
+* Introduce **simple shaders** for transformations and texture sampling.
+* Achieve a stable 60 FPS with at least 1000 moving sprites.
 
-### 1.1 Functional Testing
-Verify each game mechanic works as specified.
+### 2. Concept
 
-### 1.2 UI/UX Testing
-Ensure the interface is responsive, intuitive, and free of visual defects.
+#### Why Batch Rendering?
+Calling `glDrawArrays` for each sprite is extremely inefficient (**“draw‑call overhead”**).  
+**Batching** means we collect all sprite vertices into a single vertex buffer and issue **one draw call** per frame. This can improve performance by 10–100×.
 
-### 1.3 Performance Testing
-Confirm smooth gameplay with no frame drops or memory leaks.
+#### Texture Mapping
+A **texture** is a 2D image loaded into GPU memory. We map texture coordinates (`u,v` between 0 and 1) to each vertex, and the fragment shader samples the texture to determine the pixel color.
 
-### 1.4 Cross‑browser Testing
-Check compatibility across different browsers.
+#### Camera & View Matrix
+The camera defines what part of the game world is visible. We’ll use a **2D orthographic projection** that maps world coordinates to screen pixels. The camera can pan, zoom, and follow the player.
 
-## 2. Test Cases & Procedures
+#### Vertex Buffer Object (VBO) with Dynamic Data
+We’ll create a VBO with `GL_DYNAMIC_DRAW` that we update every frame with the latest positions of all sprites.
 
-### 2.1 Core Gameplay
+### 3. Implementation
 
-| Test Case | Procedure | Expected Result |
-|-----------|-----------|-----------------|
-| **TC1 – Paddle Movement** | Press LEFT/RIGHT arrows; move mouse over canvas. | Paddle moves horizontally, stays within canvas bounds. |
-| **TC2 – Ball Launch** | Press SPACEBAR or click canvas after start. | Ball detaches from paddle and moves independently. |
-| **TC3 – Wall Collision** | Let ball hit left, right, and top walls. | Ball bounces correctly (reflects). |
-| **TC4 – Floor Collision** | Let ball fall below paddle. | Life decreases by 1; ball resets to paddle. |
-| **TC5 – Paddle Collision** | Direct ball to hit paddle. | Ball bounces upward with angle variation; does not stick. |
-| **TC6 – Brick Collision** | Break a single brick. | Brick disappears; score increases by 10. |
-| **TC7 – Multiple Bricks** | Break several bricks in succession. | Each brick disappears, score updates cumulatively. |
-| **TC8 – Level Completion** | Break all bricks. | Alert appears, level increments, ball speeds up, bricks regenerate. |
-| **TC9 – Game Over** | Lose 3 lives. | “Game Over” alert appears; game resets after acknowledgment. |
-| **TC10 – Restart** | Click RESTART button after game over. | Score, lives, bricks, ball reset to initial state. |
+#### Step 8.1 – Create a Texture Loader
+Create `src/main/java/engine/graphics/Texture.java`:
 
-### 2.2 UI Components
+```java
+package engine.graphics;
 
-| Test Case | Procedure | Expected Result |
-|-----------|-----------|-----------------|
-| **TC11 – Score Display** | Break bricks. | Score updates in real‑time. |
-| **TC12 – Lives Display** | Lose a life. | Lives counter decreases. |
-| **TC13 – Level Display** | Complete a level. | Level counter increments. |
-| **TC14 – High Score** | Exceed previous high score. | High score updates and persists after page refresh. |
-| **TC15 – Button States** | Click START, PAUSE, RESTART, SOUND. | Buttons perform their described actions; visual feedback on hover. |
-| **TC16 – Responsive Layout** | Resize browser window to mobile size. | UI adapts (stats stack, buttons full‑width, canvas scales). |
+import static org.lwjgl.opengl.GL33.*;
+import static org.lwjgl.stb.STBImage.*;
 
-### 2.3 Edge Cases & Bug Hunting
+import java.nio.ByteBuffer;
 
-| Test Case | Procedure | Expected Result |
-|-----------|-----------|-----------------|
-| **TC17 – Ball Stuck** | Repeatedly bounce ball between paddle and bricks. | Ball never gets stuck inside objects. |
-| **TC18 – Rapid Paddle Movement** | Mash arrow keys while ball is near paddle. | No visual glitches; collision detection remains accurate. |
-| **TC19 – Consecutive Brick Hits** | Ball hits two bricks in the same frame. | Both bricks break; score increments twice. |
-| **TC20 – Paddle at Edge** | Place paddle at extreme left/right; launch ball toward edge. | Ball bounces normally; no out‑of‑bounds artifacts. |
-| **TC21 – Pause During Collision** | Pause the game the moment ball hits a brick. | Game freezes; after resume, collision resolves correctly. |
-| **TC22 – Background Tab** | Switch to another tab for 10 seconds, then return. | Game continues smoothly; no large time‑delta jumps. |
-| **TC23 – Sound Toggle** | Toggle sound on/off during gameplay. | No errors; sound state persists. |
-
-### 2.4 Performance
-
-| Test Case | Procedure | Expected Result |
-|-----------|-----------|-----------------|
-| **TC24 – Frame Rate** | Open browser’s performance monitor, play for 30 seconds. | Steady 60 FPS (or native refresh rate) with no noticeable drops. |
-| **TC25 – Memory Usage** | Monitor memory in developer tools; play for 5 minutes. | No continuous memory increase (no leaks). |
-| **TC26 – CPU Load** | Observe CPU usage; game should not cause excessive load. | CPU usage stays reasonable (< 30% on typical hardware). |
-
-## 3. Automated Checks
-
-Run the following commands in the project root to catch syntax and style issues:
-
-```bash
-# Syntax validation
-node -c game.js
-
-# (Optional) ESLint if configured
-# npx eslint game.js
+public class Texture {
+    private final int id;
+    private final int width, height;
+    
+    public Texture(String path) {
+        int[] w = new int[1], h = new int[1], channels = new int[1];
+        ByteBuffer image = stbi_load(path, w, h, channels, 4);
+        if (image == null) {
+            throw new RuntimeException("Failed to load texture: " + path);
+        }
+        width = w[0];
+        height = h[0];
+        
+        id = glGenTextures();
+        glBindTexture(GL_TEXTURE_2D, id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        stbi_image_free(image);
+    }
+    
+    public void bind() {
+        glBindTexture(GL_TEXTURE_2D, id);
+    }
+    
+    public int getId() { return id; }
+    public int getWidth() { return width; }
+    public int getHeight() { return height; }
+}
 ```
 
-Expected: No errors.
+#### Step 8.2 – Create a Sprite Batch Renderer
+Create `src/main/java/engine/graphics/SpriteBatch.java`:
 
-## 4. Cross‑Browser Compatibility
+```java
+package engine.graphics;
 
-Test the game in the following browsers (latest versions):
+import static org.lwjgl.opengl.GL33.*;
+import org.joml.Matrix4f;
+import java.util.ArrayList;
+import java.util.List;
 
-- Chrome
-- Firefox
-- Edge
-- Safari (if available)
+public class SpriteBatch {
+    private static final int MAX_SPRITES = 1000;
+    private static final int VERTICES_PER_SPRITE = 4;
+    private static final int INDICES_PER_SPRITE = 6;
+    
+    private Shader shader;
+    private int vao, vbo, ibo;
+    private List<Sprite> sprites = new ArrayList<>();
+    private Matrix4f projectionMatrix = new Matrix4f();
+    
+    public static class Sprite {
+        public float x, y, width, height;
+        public Texture texture;
+        public float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+    }
+    
+    public void init(int screenWidth, int screenHeight) {
+        // Orthographic projection (0,0 = top‑left, screenWidth,screenHeight = bottom‑right)
+        projectionMatrix.setOrtho(0, screenWidth, screenHeight, 0, -1, 1);
+        
+        // Load shader with support for texture and projection matrix
+        shader = new Shader(
+            "src/main/resources/shaders/batch.vert",
+            "src/main/resources/shaders/batch.frag"
+        );
+        
+        // Generate buffers
+        vao = glGenVertexArrays();
+        vbo = glGenBuffers();
+        ibo = glGenBuffers();
+        
+        glBindVertexArray(vao);
+        
+        // Vertex buffer (will be updated dynamically)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, MAX_SPRITES * VERTICES_PER_SPRITE * 8 * Float.BYTES, GL_DYNAMIC_DRAW);
+        
+        // Vertex layout: position (2), texCoord (2), color (4)
+        glVertexAttribPointer(0, 2, GL_FLOAT, false, 8 * Float.BYTES, 0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, 8 * Float.BYTES, 2 * Float.BYTES);
+        glVertexAttribPointer(2, 4, GL_FLOAT, false, 8 * Float.BYTES, 4 * Float.BYTES);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+        
+        // Index buffer (static, reused for all sprites)
+        int[] indices = new int[MAX_SPRITES * INDICES_PER_SPRITE];
+        for (int i = 0; i < MAX_SPRITES; i++) {
+            int offset = i * 4;
+            indices[i * 6 + 0] = offset + 0;
+            indices[i * 6 + 1] = offset + 1;
+            indices[i * 6 + 2] = offset + 2;
+            indices[i * 6 + 3] = offset + 2;
+            indices[i * 6 + 4] = offset + 3;
+            indices[i * 6 + 5] = offset + 0;
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_STATIC_DRAW);
+        
+        glBindVertexArray(0);
+    }
+    
+    public void begin() {
+        sprites.clear();
+    }
+    
+    public void drawSprite(float x, float y, float width, float height, Texture texture) {
+        Sprite sprite = new Sprite();
+        sprite.x = x;
+        sprite.y = y;
+        sprite.width = width;
+        sprite.height = height;
+        sprite.texture = texture;
+        sprites.add(sprite);
+    }
+    
+    public void end() {
+        if (sprites.isEmpty()) return;
+        
+        // Upload vertex data for all sprites
+        float[] vertexData = new float[sprites.size() * VERTICES_PER_SPRITE * 8];
+        int idx = 0;
+        for (Sprite sprite : sprites) {
+            // Four corners of the quad
+            float x1 = sprite.x, x2 = sprite.x + sprite.width;
+            float y1 = sprite.y, y2 = sprite.y + sprite.height;
+            float[] quad = {
+                x1, y1, 0, 0, sprite.r, sprite.g, sprite.b, sprite.a, // top‑left
+                x2, y1, 1, 0, sprite.r, sprite.g, sprite.b, sprite.a, // top‑right
+                x2, y2, 1, 1, sprite.r, sprite.g, sprite.b, sprite.a, // bottom‑right
+                x1, y2, 0, 1, sprite.r, sprite.g, sprite.b, sprite.a  // bottom‑left
+            };
+            System.arraycopy(quad, 0, vertexData, idx, quad.length);
+            idx += quad.length;
+        }
+        
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, vertexData);
+        
+        // Draw
+        shader.use();
+        shader.setUniform("uProjection", projectionMatrix);
+        
+        glBindVertexArray(vao);
+        glActiveTexture(GL_TEXTURE0);
+        // Assume all sprites use the same texture for simplicity
+        sprites.get(0).texture.bind();
+        glDrawElements(GL_TRIANGLES, sprites.size() * INDICES_PER_SPRITE, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+}
+```
 
-**Checklist:**
-- [ ] Canvas renders correctly.
-- [ ] Keyboard/mouse inputs work.
-- [ ] UI styling appears consistent.
-- [ ] No console errors.
+#### Step 8.3 – Create Batch Shaders
+**`batch.vert`**:
 
-## 5. Debugging Tips
+```glsl
+#version 330 core
 
-If a test fails:
+layout (location = 0) in vec2 aPos;
+layout (location = 1) in vec2 aTexCoord;
+layout (location = 2) in vec4 aColor;
 
-1. **Open the browser’s developer console** (F12) – look for red error messages.
-2. **Common issues and fixes:**
+uniform mat4 uProjection;
 
-   - **Ball passes through paddle** – refine collision detection in `updateBall()`.
-   - **Bricks not disappearing** – verify `brick.visible` is set to `false` and `drawBricks()` skips invisible bricks.
-   - **Score not updating** – ensure `addScore()` is called and updates the DOM element.
-   - **Game loop stutters** – add delta‑time clamping and cap maximum delta.
-   - **High score not saving** – check `localStorage` permissions and JSON serialization.
+out vec2 vTexCoord;
+out vec4 vColor;
 
-3. **Use `console.log()`** strategically to trace variable values (e.g., ball position, collision flags).
+void main() {
+    gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
+    vTexCoord = aTexCoord;
+    vColor = aColor;
+}
+```
 
-## 6. Regression Testing
+**`batch.frag`**:
 
-After any bug fix, re‑run the relevant test cases to ensure no new bugs were introduced.
+```glsl
+#version 330 core
 
-## 7. Expected Outcome
+in vec2 vTexCoord;
+in vec4 vColor;
 
-All test cases pass, and the game runs flawlessly across target browsers with smooth performance.
+uniform sampler2D uTexture;
 
-## 8. Next Step
+out vec4 FragColor;
 
-Proceed to **PHASE 9: Final Delivery** – packaging the complete game, writing final documentation, and providing run instructions.
+void main() {
+    FragColor = texture(uTexture, vTexCoord) * vColor;
+}
+```
+
+#### Step 8.4 – Integrate SpriteBatch into Main
+Replace the old `Renderer` with `SpriteBatch`. Load a texture (e.g., a PNG file) and draw multiple sprites.
+
+In `Main.java`:
+
+```java
+private static SpriteBatch spriteBatch;
+private static Texture playerTexture;
+private static Texture blockTexture;
+
+// In main():
+spriteBatch = new SpriteBatch();
+spriteBatch.init(800, 600);
+playerTexture = new Texture("src/main/resources/textures/player.png");
+blockTexture = new Texture("src/main/resources/textures/block.png");
+
+// In render():
+spriteBatch.begin();
+// Draw player
+spriteBatch.drawSprite(playerX, playerY, 32, 32, playerTexture);
+// Draw 100 blocks
+for (int i = 0; i < 100; i++) {
+    spriteBatch.drawSprite(i * 40, 300, 32, 32, blockTexture);
+}
+spriteBatch.end();
+```
+
+#### Step 8.5 – Add a Camera
+Create a `Camera` class that tracks an offset and zoom, and updates the projection matrix accordingly.
+
+```java
+package engine.graphics;
+
+import org.joml.Matrix4f;
+
+public class Camera {
+    private float x, y;
+    private float zoom = 1.0f;
+    private int viewportWidth, viewportHeight;
+    
+    public Camera(int viewportWidth, int viewportHeight) {
+        this.viewportWidth = viewportWidth;
+        this.viewportHeight = viewportHeight;
+    }
+    
+    public void setPosition(float x, float y) {
+        this.x = x;
+        this.y = y;
+    }
+    
+    public Matrix4f getProjection() {
+        Matrix4f projection = new Matrix4f();
+        float left = x - viewportWidth / (2.0f * zoom);
+        float right = x + viewportWidth / (2.0f * zoom);
+        float bottom = y + viewportHeight / (2.0f * zoom);
+        float top = y - viewportHeight / (2.0f * zoom);
+        projection.setOrtho(left, right, bottom, top, -1, 1);
+        return projection;
+    }
+}
+```
+
+Update `SpriteBatch` to accept a camera matrix instead of a fixed orthographic matrix.
+
+### 4. Code
+New files:
+* `src/main/java/engine/graphics/Texture.java`
+* `src/main/java/engine/graphics/SpriteBatch.java`
+* `src/main/java/engine/graphics/Camera.java`
+* `src/main/resources/shaders/batch.vert`
+* `src/main/resources/shaders/batch.frag`
+
+Modified files:
+* `src/main/java/engine/Main.java`
+
+### 5. Output
+* A window filled with hundreds of textured sprites (blocks) and a player sprite.
+* The sprites are drawn with a single draw call, achieving high performance.
+* The camera can be moved (e.g., follow the player) by updating its position.
+* The frame rate should stay close to 60 FPS even with 1000 sprites.
+
+### 6. Common Errors
+* **Texture appears black** – Ensure the texture file path is correct and the image is loaded with the correct number of channels (STBI loads 4 for RGBA). Check that `glActiveTexture` is set and the uniform `uTexture` is bound to texture unit 0.
+* **Sprites appear upside down** – OpenGL’s texture coordinate origin is bottom‑left, but we’re using top‑left. Adjust the texCoords in `drawSprite` accordingly.
+* **Memory leak** – Remember to delete textures and buffers when the game ends (`glDeleteTextures`, `glDeleteBuffers`).
+* **Batch size limit** – The `MAX_SPRITES` constant limits how many sprites can be drawn in one batch. If you need more, split into multiple batches or increase the limit.
 
 ---
-*Thorough testing is crucial for a professional‑quality game. Do not skip this phase.*
+**Next Step**: [Phase 9: Asset Management](phase9.md) – we’ll build a resource manager that caches textures, sounds, and fonts, and supports hot‑reloading.

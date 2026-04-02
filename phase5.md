@@ -1,135 +1,210 @@
-# PHASE 5: Game Loop Implementation
+# Phase 5: Input System
 
-## Objective
-Implement a stable, smooth game loop that updates game state and renders graphics at a consistent frame rate (ideally 60 FPS) without flickering or lag.
+## STEP 5: Making the Engine Respond to the Player
 
-## 1. The Game Loop Pattern
-A game loop continuously performs three tasks:
-1. **Process input** (handled by event listeners outside the loop)
-2. **Update game state** (move objects, detect collisions, update scores)
-3. **Render** (draw everything on the canvas)
+### 1. Goal
+* Capture **keyboard** and **mouse** input.
+* Implement **polling** (check key state each frame) and **event‑driven** (callbacks) approaches.
+* Move the triangle with arrow keys.
+* Display mouse coordinates on the screen (optional).
+* Understand input abstraction for later game‑object control.
 
-In JavaScript, the best practice is to use `requestAnimationFrame(callback)`, which synchronizes with the browser’s repaint cycle, providing smooth animations and efficient CPU usage.
+### 2. Concept
 
-## 2. Current Implementation
-The game loop is defined in `game.js` (lines 373‑388):
+#### Polling vs Event‑Driven
+* **Polling** – Every frame we ask “is the A key currently pressed?” Simple, works for continuous movement (like holding an arrow key).  
+  Example: `if (keyPressed(KEY_RIGHT)) player.x += speed;`
+* **Event‑driven** – We register a callback that fires **once** when a key is pressed or released. Perfect for one‑shot actions (jump, shoot).  
+  Example: `onKeyPress(KEY_SPACE, () -> player.jump());`
 
-```javascript
-let lastTime = 0;
+For our engine we’ll support **both**:
+* A **polling‑based** `Input` class that stores the current state of every key.
+* **GLFW callbacks** that update that state whenever a key changes.
 
-/**
- * Main game loop
- * @param {number} timestamp - Current time in milliseconds
- */
-function gameLoop(timestamp) {
-    if (!state.isRunning || state.isPaused) {
-        requestAnimationFrame(gameLoop);
-        return;
+#### Keyboard Scancodes vs Keycodes
+* **Keycode** – The logical key (e.g., `GLFW_KEY_A`) – same across keyboards.
+* **Scancode** – The physical position of the key on the keyboard – differs between layouts (AZERTY vs QWERTY).
+We’ll use **keycodes** because they’re simpler and portable enough for our needs.
+
+#### Mouse Input
+* **Position** – `(x, y)` in screen coordinates (0,0 = top‑left on Windows, bottom‑left in OpenGL – we’ll convert).
+* **Buttons** – Left, right, middle – treated just like keyboard keys.
+
+### 3. Implementation
+
+#### Step 5.1 – Create the Input Class
+Create `src/main/java/engine/input/Input.java`:
+
+```java
+package engine.input;
+
+import static org.lwjgl.glfw.GLFW.*;
+
+public class Input {
+    private static final int MAX_KEYS = 512;
+    private static final int MAX_MOUSE_BUTTONS = 16;
+    
+    private static boolean[] keyPressed = new boolean[MAX_KEYS];
+    private static boolean[] mousePressed = new boolean[MAX_MOUSE_BUTTONS];
+    private static double mouseX, mouseY;
+    
+    // Callback setters – to be called from GLFW callbacks
+    public static void setKeyState(int key, boolean pressed) {
+        if (key >= 0 && key < MAX_KEYS) {
+            keyPressed[key] = pressed;
+        }
     }
-
-    const delta = timestamp - lastTime;
-    lastTime = timestamp;
-
-    updatePaddle();
-    updateBall();
-    draw();
-
-    requestAnimationFrame(gameLoop);
+    
+    public static void setMouseButtonState(int button, boolean pressed) {
+        if (button >= 0 && button < MAX_MOUSE_BUTTONS) {
+            mousePressed[button] = pressed;
+        }
+    }
+    
+    public static void setMousePosition(double x, double y) {
+        mouseX = x;
+        mouseY = y;
+    }
+    
+    // Polling queries
+    public static boolean isKeyPressed(int key) {
+        if (key < 0 || key >= MAX_KEYS) return false;
+        return keyPressed[key];
+    }
+    
+    public static boolean isMouseButtonPressed(int button) {
+        if (button < 0 || button >= MAX_MOUSE_BUTTONS) return false;
+        return mousePressed[button];
+    }
+    
+    public static double getMouseX() { return mouseX; }
+    public static double getMouseY() { return mouseY; }
+    
+    // Helper for common keys
+    public static boolean isUpPressed()    { return isKeyPressed(GLFW_KEY_UP)    || isKeyPressed(GLFW_KEY_W); }
+    public static boolean isDownPressed()  { return isKeyPressed(GLFW_KEY_DOWN)  || isKeyPressed(GLFW_KEY_S); }
+    public static boolean isLeftPressed()  { return isKeyPressed(GLFW_KEY_LEFT)  || isKeyPressed(GLFW_KEY_A); }
+    public static boolean isRightPressed() { return isKeyPressed(GLFW_KEY_RIGHT) || isKeyPressed(GLFW_KEY_D); }
+    public static boolean isSpacePressed() { return isKeyPressed(GLFW_KEY_SPACE); }
 }
 ```
 
-### Key Design Decisions
-- **`requestAnimationFrame`** – ensures the loop runs at the display’s refresh rate (typically 60 Hz).
-- **Delta time** – calculated as `timestamp - lastTime`. Although not yet used for movement calculations, it is available for future frame‑rate‑independent physics.
-- **Pause/run control** – the loop continues to run even when paused, but skips update/render steps, keeping the animation alive and ready to resume instantly.
-- **Single responsibility** – each iteration updates paddle, ball, and draws the frame.
+#### Step 5.2 – Register GLFW Callbacks in Main.java
+We need to attach GLFW key and mouse callbacks to update our `Input` class. Add these methods to `Main.java` **before** starting the game loop.
 
-## 3. Smooth Gameplay Guarantees
-To avoid flickering and ensure smoothness:
+Insert the following right after `glfwMakeContextCurrent(window)` and before `renderer.init()`:
 
-- **Double buffering**: The HTML5 Canvas implicitly uses double buffering; we draw the entire scene in one pass (`draw()` clears the canvas and redraws all objects).
-- **No state mutations during render**: The rendering phase is read‑only; all game‑state changes happen in `updatePaddle()` and `updateBall()`.
-- **Efficient collision detection**: The brick‑collision loop is optimized by breaking early after a hit (though the current implementation continues checking; this is acceptable for a small grid).
+```java
+// Register input callbacks
+glfwSetKeyCallback(window, (window, key, scancode, action, mods) -> {
+    if (action == GLFW_PRESS) {
+        Input.setKeyState(key, true);
+    } else if (action == GLFW_RELEASE) {
+        Input.setKeyState(key, false);
+    }
+});
 
-## 4. Testing the Game Loop
+glfwSetMouseButtonCallback(window, (window, button, action, mods) -> {
+    if (action == GLFW_PRESS) {
+        Input.setMouseButtonState(button, true);
+    } else if (action == GLFW_RELEASE) {
+        Input.setMouseButtonState(button, false);
+    }
+});
 
-### Test 1: Visual Smoothness
-1. Open `index.html` and start the game.
-2. Observe the movement of the ball and paddle.
-3. **Expected**: Motion is fluid, without stuttering or visible jumps.
+glfwSetCursorPosCallback(window, (window, xpos, ypos) -> {
+    // Convert from screen coordinates (0,0 = top‑left) to OpenGL coordinates (0,0 = bottom‑left)
+    int[] height = new int[1];
+    glfwGetWindowSize(window, null, height);
+    Input.setMousePosition(xpos, height[0] - ypos);
+});
+```
 
-### Test 2: Frame Rate Consistency
-1. Open the browser’s developer tools (F12) and go to the **Performance** or **Rendering** tab.
-2. Enable “Frame rate” overlay.
-3. Play the game for 30 seconds.
-4. **Expected**: Frame rate stays close to 60 FPS (or your display’s refresh rate) with no significant drops.
+#### Step 5.3 – Move the Triangle with Arrow Keys
+We need to make the triangle’s position mutable. Let’s modify `Renderer` to store a translation offset and update it based on input.
 
-### Test 3: Pause/Resume Stability
-1. Start the game and let the ball move.
-2. Press **P** or click the PAUSE button.
-3. Verify that the game freezes (no movement).
-4. Press **P** again (or RESUME) – the game should continue exactly from where it stopped, with no visual glitches.
+First, add a `translate` vector to `Renderer`:
 
-### Test 4: Background Tab Behavior
-1. Start the game.
-2. Switch to another browser tab for a few seconds.
-3. Return to the game tab.
-4. **Expected**: The game resumes smoothly; the ball does not jump unnaturally (thanks to delta‑time clamping, which we could add in an advanced version).
+```java
+private float offsetX = 0.0f;
+private float offsetY = 0.0f;
 
-## 5. Optional Enhancements
-If you wish to make the game loop more robust, consider the following additions (already prepared as snippets):
-
-### 5.1 Delta‑Time Scaling
-Modify `updateBall()` to use `delta` for frame‑rate‑independent movement:
-
-```javascript
-function updateBall(delta) {
-    const scale = delta / 16.67; // 60 FPS reference
-    ball.x += ball.dx * scale;
-    ball.y += ball.dy * scale;
-    // ... rest of collision logic
+public void setOffset(float dx, float dy) {
+    offsetX = dx;
+    offsetY = dy;
 }
 ```
 
-### 5.2 FPS Counter (Debug)
-Add a small FPS display in the corner of the canvas:
+Update the vertex shader to apply the offset. Change `simple.vert` to:
 
-1. Insert a `<div id="fps">FPS: 0</div>` in `index.html`.
-2. In `game.js`:
-   ```javascript
-   let frameCount = 0;
-   let fps = 0;
-   let fpsLastUpdate = 0;
+```glsl
+#version 330 core
 
-   function updateFPS(timestamp) {
-       frameCount++;
-       if (timestamp - fpsLastUpdate >= 1000) {
-           fps = Math.round((frameCount * 1000) / (timestamp - fpsLastUpdate));
-           document.getElementById('fps').textContent = `FPS: ${fps}`;
-           frameCount = 0;
-           fpsLastUpdate = timestamp;
-       }
-   }
-   ```
-   Call `updateFPS(timestamp)` inside `gameLoop`.
+layout (location = 0) in vec2 aPos;
+uniform vec2 uOffset;  // New uniform
 
-### 5.3 Delta Clamping
-Prevent huge `delta` values when the tab is inactive:
-
-```javascript
-const delta = Math.min(timestamp - lastTime, 100); // cap at 100 ms
-lastTime = timestamp;
+void main() {
+    gl_Position = vec4(aPos + uOffset, 0.0, 1.0);
+}
 ```
 
-## 6. Expected Output
-After verifying the tests, you should have:
-- A smoothly animating game with no visible stutter.
-- Consistent frame rates (close to your display’s refresh rate).
-- Proper pause/resume functionality.
-- A game loop that is easy to extend for future features (levels, power‑ups, etc.).
+Then in `Renderer.render()`, set the uniform before drawing:
 
-## 7. Next Step
-Proceed to **PHASE 6: UI & UX**, where we will polish the user interface, add visual feedback, improve colors, and implement start/restart buttons with better styling.
+```java
+shader.use();
+int offsetLoc = glGetUniformLocation(shader.getId(), "uOffset");
+glUniform2f(offsetLoc, offsetX, offsetY);
+```
+
+Now, in `Main.update()` (which is called 60 times per second), read the arrow keys and adjust the offset.
+
+Add a static `Renderer` reference in `Main` (already there) and call:
+
+```java
+private static void update() {
+    float speed = 0.01f; // pixels per update (NDC units)
+    float dx = 0.0f, dy = 0.0f;
+    
+    if (Input.isRightPressed()) dx += speed;
+    if (Input.isLeftPressed())  dx -= speed;
+    if (Input.isUpPressed())    dy += speed;
+    if (Input.isDownPressed())  dy -= speed;
+    
+    renderer.setOffset(dx, dy);
+}
+```
+
+#### Step 5.4 – Display Mouse Coordinates (Optional)
+Add a debug line in `Main.render()` that prints the mouse position every second.
+
+```java
+// Inside render(), after FPS logging
+if (currentTime - lastMouseTime >= 1_000_000_000) {
+    System.out.printf("Mouse: (%.0f, %.0f)%n", Input.getMouseX(), Input.getMouseY());
+    lastMouseTime = currentTime;
+}
+```
+
+### 4. Code
+New files:
+* `src/main/java/engine/input/Input.java`
+
+Modified files:
+* `src/main/java/engine/Main.java` – added callbacks.
+* `src/main/java/engine/graphics/Renderer.java` – added offset and uniform.
+* `src/main/resources/shaders/simple.vert` – added `uOffset` uniform.
+
+### 5. Output
+* The red triangle should **move smoothly** when you press arrow keys (or WASD).
+* The triangle should stop moving when you release the keys.
+* The terminal should still show FPS, plus mouse coordinates every second (if you added the debug line).
+* The mouse position printed should reflect the cursor location inside the window.
+
+### 6. Common Errors
+* **Triangle doesn’t move** – Check that the uniform location is found (`offsetLoc != -1`). Print shader compilation logs.
+* **Input lag** – Ensure you’re polling in `update()` (60 Hz) not just in `render()` (variable).
+* **Mouse coordinates upside down** – Remember that OpenGL’s origin is bottom‑left, while GLFW’s default is top‑left. The conversion we did (`height[0] - ypos`) fixes this.
+* **Keys not detected** – Verify that the GLFW key callback is registered **before** the game loop starts.
 
 ---
-*The game loop is the heart of the game; a well‑implemented loop ensures a professional, enjoyable player experience.*
+**Next Step**: [Phase 6: Entity Component System (ECS)](phase6.md) – we’ll replace the hard‑coded triangle with a flexible ECS that can manage thousands of game objects.
