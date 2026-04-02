@@ -86,6 +86,51 @@ Manual testing of game mechanics:
 4. Push to the branch (`git push origin feature/amazing-feature`).
 5. Open a Pull Request.
 
+## 2D Game Engine (Java/LWJGL)
+
+This repository now includes a complete, production‑ready 2D game engine built from scratch in Java with LWJGL. The engine follows a modular, component‑based architecture and includes:
+
+- **Window & Rendering**: OpenGL 3.3 core profile, shader‑based rendering, camera system.
+- **Game Loop**: Fixed‑timestep loop with delta‑time and FPS control.
+- **Input System**: Keyboard/mouse polling and event‑driven callbacks.
+- **Entity‑Component‑System (ECS)**: Data‑oriented design for scalable game objects.
+- **Physics**: AABB collision detection, movement, and gravity.
+- **Asset Management**: Texture/sound loading with caching and hot‑reload.
+- **Scene Management**: Stack‑based scene switching and game states.
+- **Audio**: OpenAL integration for spatial sound and music.
+- **Debug Tools**: Logging, FPS counter, and debug overlays.
+
+### Running the Engine
+
+**Prerequisites**
+- Java JDK 17 or later
+- Gradle (or use the provided wrapper)
+
+**Clone & Build**
+```bash
+git clone https://github.com/itsmayankchoudhary/Block_Crusher-.git
+cd Block_Crusher-/game-engine
+./gradlew run
+```
+
+If you encounter a graphics‑driver crash (OpenGL 3.3 not supported), try:
+```bash
+./gradlew run -Dorg.lwjgl.opengl.Display.allowSoftwareOpenGL=true
+```
+
+### Tutorial Documentation
+
+The engine is accompanied by a 13‑phase tutorial (`phase0.md`–`phase13.md`) that explains each system in depth, with real‑world analogies, step‑by‑step implementation, and working code examples.
+
+### Structure
+```
+game-engine/
+├── src/main/java/engine/          # Core engine modules
+├── src/main/resources/shaders/    # GLSL shaders
+├── build.gradle.kts               # Gradle build script
+└── gradlew                        # Gradle wrapper
+```
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -94,6 +139,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Inspired by classic Atari Breakout and Arkanoid games.
 - Thanks to MDN Web Docs for excellent Canvas tutorials.
+- LWJGL and OpenGL communities for excellent documentation.
 
 ---
 *Project created as part of a step‑by‑step game development tutorial.*
